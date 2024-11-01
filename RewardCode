@@ -1,0 +1,82 @@
+import math
+
+def reward_function(params):
+
+    def __init__(self, verbose=False, track_time=False):
+        self.prev_speed = 0
+    
+     # Set the speed threshold based your action space
+    SPEED_THRESHOLD = 3.9
+    
+    def reward_fun(self, params):
+        speed = params['speed']
+        reward = 0
+        if (speed > self.prev_speed) and (self.prev_speed > 0):
+            reward += 10
+        elif speed < self.prev_speed:
+        # Penalize if the car goes too slow
+            reward = 0.5
+        elif speed > SPEED_THRESHOLD:
+        # Penalize if the car goes too slow
+            reward += 30
+        self.prev_speed = speed  # update the previous speed
+        return reward  # return the calculated reward
+
+    # Read input variables
+    all_wheels_on_track = params['all_wheels_on_track']
+
+    if not all_wheels_on_track:
+        # Penalize if the car goes off track
+        reward = 1e-3
+    else:
+        # High reward if the car stays on track and goes fast
+        reward = 1.0
+        return reward  # return the calculated reward
+        
+    # Parameters:
+    # x1: x coordinate of starting point
+    # y1: y coordinate of starting point
+    # x2: x coordinate of ending point
+    # y2: y coordinate of ending point
+    # distance: distance between points of lines
+    
+    def get_line_points(x1, y1, x2, y2, distance=0.1):
+        dx = x2 - x1
+        dy = y2 - y1
+        line_length = math.sqrt(dx ** 2 + dy ** 2)
+        num_points = int(line_length / distance) + 1
+        x_steps = dx / (num_points - 1)
+        y_steps = dy / (num_points - 1)
+        line_points = [(x1 + i * x_steps, y1 + i * y_steps) for i in range(num_points)]
+        return line_points
+        
+        
+    def find_next_three_waypoints(params):
+        waypoints = params['waypoints']
+        next_points = (list(range(params['closest_waypoint'][1], params['closest_waypoint'][1] + 3)))
+        for i in range(len(next_points)):
+            if next_points[i] > len(waypoints):
+                next_points[i] -= len(waypoints)
+        return next_points
+        
+    
+    def reward_function(params):
+        # Get all waypoints
+        waypoints = params['waypoints']
+        reward = 1
+        # Get current position
+        x = params['x']
+        y = params['y']
+    
+        next_points = find_next_three_waypoints(params)
+    
+        # Get Destination coordinates
+        x_forward = waypoints[next_points[2]][0]
+        y_forward = waypoints[next_points[2]][1]
+    
+        optimal_path = get_line_points(x, y, x_forward, y_forward)
+    
+        # ... perform your operations
+        return reward
+
+    return float(reward)
