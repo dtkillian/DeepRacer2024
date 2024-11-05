@@ -1,0 +1,135 @@
+import math
+
+# Function to generate points along a straight line between two waypoints
+def get_line_points(x1, y1, x2, y2, distance=0.1):
+    """
+    Generates intermediate points along the straight line from (x1, y1) to (x2, y2) at the specified distance interval.
+    
+    Args:
+        x1, y1: Coordinates of the starting point.
+        x2, y2: Coordinates of the ending point.
+        distance: Distance between each generated point.
+    
+    Returns:
+        List of (x, y) coordinates representing points along the line.
+    """
+    dx, dy = x2 - x1, y2 - y1
+    line_length = math.sqrt(dx**2 + dy**2)
+    num_points = int(line_length / distance) + 1
+    x_steps, y_steps = dx / (num_points - 1), dy / (num_points - 1)
+    return [(x1 + i * x_steps, y1 + i * y_steps) for i in range(num_points)]
+
+# Function to find the next three waypoints ahead on the track
+def find_next_three_waypoints(waypoints, closest_waypoint_index):
+    """
+    Retrieves the indices of the next three waypoints ahead of the car.
+    
+    Args:
+        waypoints: List of waypoints on the track.
+        closest_waypoint_index: Index of the waypoint closest to the car.
+    
+    Returns:
+        List of indices for the next three waypoints.
+    """
+    num_waypoints = len(waypoints)
+    next_points = [(closest_waypoint_index + i) % num_waypoints for i in range(3)]
+    return next_points
+
+# Helper function to calculate curvature based on optimal path
+def calculate_optimal_path_curvature(optimal_path):
+    """
+    Calculates the curvature of a path based on changes in angle between consecutive segments.
+    
+    Args:
+        optimal_path: List of (x, y) points representing the optimal path.
+    
+    Returns:
+        Average curvature value for the path.
+    """
+    curvature = 0
+    for i in range(1, len(optimal_path) - 1):
+        dx1 = optimal_path[i][0] - optimal_path[i - 1][0]
+        dy1 = optimal_path[i][1] - optimal_path[i - 1][1]
+        dx2 = optimal_path[i + 1][0] - optimal_path[i][0]
+        dy2 = optimal_path[i + 1][1] - optimal_path[i][1]
+        angle_change = abs(math.atan2(dy2, dx2) - math.atan2(dy1, dx1))
+        curvature += angle_change
+    return curvature / (len(optimal_path) - 2) if len(optimal_path) > 2 else 0
+
+# Main reward function
+def reward_function(params):
+    """
+    Calculates the reward based on the car's performance parameters, such as speed, distance from the optimal path,
+    curvature, and steering alignment.
+    
+    Args:
+        params: Dictionary of DeepRacer parameters, including speed, position, waypoints, etc.
+    
+    Returns:
+        Calculated reward as a float.
+    """
+    # Define a base speed threshold; actual threshold will adjust with curvature
+    BASE_SPEED_THRESHOLD = 3.9
+
+    # Initialize the base reward
+    reward = 1.0
+
+    # Retrieve current speed and previous speed, using 0 as the default for the first call
+    speed = params['speed']
+    prev_speed = params.get('prev_speed', 0)  # Default to 0 if prev_speed is not available
+
+    # Speed adjustment: reward for accelerating, penalize for decelerating, and bonus for high speed
+    if speed > prev_speed:
+        reward += 10  # Reward for increasing speed
+    elif speed < prev_speed:
+        reward *= 0.5  # Penalize for slowing down
+    elif speed > BASE_SPEED_THRESHOLD:
+        reward += 30  # Bonus for maintaining speed above threshold
+
+    # Update the previous speed in params for use in the next step
+    params['prev_speed'] = speed
+
+    # Penalize heavily if any wheels are off track, to encourage staying within track boundaries
+    if not params['all_wheels_on_track']:
+        return 1e-3  # Strong penalty if off-track
+
+    # Path planning: get the next three waypoints to define an optimal path forward
+    waypoints = params['waypoints']
+    closest_waypoints = params['closest_waypoints']
+    next_points = find_next_three_waypoints(waypoints, closest_waypoints[1])
+
+    # Calculate the optimal path by generating intermediate points between the car's position and a future waypoint
+    x, y = params['x'], params['y']
+    x_forward, y_forward = waypoints[next_points[2]]
+    optimal_path = get_line_points(x, y, x_forward, y_forward)
+
+    # Curvature-Adaptive Speed Adjustment
+    # Calculate path curvature and adjust speed threshold based on curvature
+    curvature = calculate_optimal_path_curvature(optimal_path)
+    adjusted_speed_threshold = BASE_SPEED_THRESHOLD * (1 - min(curvature, 0.9))  # Lower speed for high curvature areas
+    if speed > adjusted_speed_threshold:
+        reward += 1.5  # Reward for managing speed based on track curvature
+
+    # Progress-Based Incremental Rewards using Optimal Path
+    # Measure distance from the optimal path to reward alignment with this path
+    distance_from_optimal_path = min(math.sqrt((x - px) ** 2 + (y - py) ** 2) for px, py in optimal_path)
+    if distance_from_optimal_path < 0.1:
+        reward += params['progress'] / 100.0  # Incremental reward for staying close to optimal path
+    else:
+        reward *= 0.8  # Penalize if off the optimal path
+
+    # Adaptive Steering Angle Control
+    # Calculate the ideal steering angle based on the direction of the optimal path
+    x_opt1, y_opt1 = optimal_path[0]
+    x_opt2, y_opt2 = optimal_path[1]
+    optimal_steering_angle = math.degrees(math.atan2(y_opt2 - y_opt1, x_opt2 - x_opt1))
+    steering_difference = abs(optimal_steering_angle - params['steering_angle'])
+    
+    # Reward for steering alignment with the optimal path; penalize large deviations
+    if steering_difference < 10:
+        reward += 1.0  # Reward for steering alignment
+    else:
+        reward *= 0.8  # Penalize for poor steering alignment
+
+    # Return the final calculated reward as a floating-point number
+    return float(reward)
